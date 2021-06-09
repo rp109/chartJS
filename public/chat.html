@@ -1,0 +1,253 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+    <title>Chart with iosocket chat</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/2.2.0/socket.io.js"> </script>
+    <script src="https://code.jquery.com/jquery-3.4.0.min.js"></script>
+    <script src="https://ajax.googleapis.com/ajax/libs/jquery/2.1.4/jquery.min.js"></script>
+    <script async defer src="https://maps.googleapis.com/maps/api/js?key=AIzaSyCtVFgESeKeiB8Jqb14umBEKm1aSXdfssc">
+    </script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/2.8.0/Chart.js"> </script>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font: 13px Helvetica, Arial;
+        }
+
+        form {
+            background: gray;
+            padding: 3px;
+            position: fixed;
+            bottom: 0;
+            width: 100%;
+        }
+
+        form input {
+            border: 0;
+            padding: 10px;
+            width: 90%;
+            margin-right: .5%;
+        }
+
+        form button {
+            width: 9%;
+            background: whitesmoke;
+            border: none;
+            padding: 10px;
+        }
+
+        #messages {
+            list-style-type: none;
+            margin: 0;
+            padding: 0;
+        }
+
+        #messages li {
+            padding: 5px 10px;
+        }
+
+        #messages li:nth-child(odd) {
+            background: #eee;
+        }
+
+        .chart {
+            width: 800px;
+            height: 800px
+        }
+    </style>
+
+</head>
+
+<body>
+    <div>
+        <ul id="messages"></ul>
+        <form action="">
+            <input id="messageBox" autocomplete="off" /><button>Send</button>
+        </form>
+    </div>
+    <div id="map"></div>
+    <div class="chart">
+        <canvas id="myChart"></canvas>
+    </div>
+    <script>
+
+        $(document).ready(function () {
+            getLetLongData();
+            function getLetLongData() {
+                var latitude = 0, longitude = 0;
+
+                if (navigator.geolocation) {
+                    navigator.geolocation.getCurrentPosition(function (position) {
+                        latitude = position.coords.latitude;
+                        longitude = position.coords.longitude;
+                        var ipAddress = '';
+                        $.getJSON('https://api.ipdata.co?api-key=test', function (data) {
+                            ipAddress += data.ip;
+                        });
+                        setTimeout(function () {
+                            initMap(latitude, longitude, ipAddress, browserName);
+                        }, 200);
+                    })
+                    console.log("inside get let");
+                } else {
+                    alert("No geolocation is available in this browser!");
+                }
+                // Opera 8.0+
+                let isOpera = (!!window.opr && !!opr.addons) || !!window.opera || navigator.userAgent.indexOf(' OPR/') >= 0;
+
+                // Firefox 1.0+
+                let isFirefox = typeof InstallTrigger !== 'undefined';
+
+                // Safari 3.0+ "[object HTMLElementConstructor]" 
+                let isSafari = /constructor/i.test(window.HTMLElement) || (function (p) { return p.toString() === "[object SafariRemoteNotification]"; })(!window['safari'] || (typeof safari !== 'undefined' && safari.pushNotification));
+
+                // Internet Explorer 6-11
+                let isIE = /*@cc_on!@*/false || !!document.documentMode;
+
+                // Edge 20+
+                let isEdge = !isIE && !!window.StyleMedia;
+
+                // Chrome 1 - 71
+                let isChrome = !!window.chrome && (!!window.chrome.webstore || !!window.chrome.runtime);
+
+                let browserObj = {
+                    Opera: isOpera,
+                    Firefox: isFirefox,
+                    Safari: isSafari,
+                    InternetExplorer: isIE,
+                    Chrome: isChrome,
+                    Edge: isEdge
+                }
+                let browserName = '';
+                for (key in browserObj) {
+                    if (browserObj[key]) {
+                        browserName = key;
+                        break;
+                    }
+                }
+            }
+            function initMap(lat, long, ip, browser) {
+                var map = new google.maps.Map(document.getElementById('map'), {
+                    zoom: 8,
+                    center: {
+                        lat: 23.0731,
+                        lng: 72.5133
+                    }
+                });
+                var geocoder = new google.maps.Geocoder;
+                let latlng = {
+                    lat: lat,
+                    lng: long
+                };
+                geocoder.geocode({
+                    'location': latlng
+                }, function (results, status) {
+                    if (status === 'OK') {
+                        if (results[6]) {
+                            tempAddress = results[6].formatted_address;
+                            return getAddress(tempAddress, ip, browser);
+                        } else {
+                            window.alert('No results found');
+                            return true;
+                        }
+                    } else {
+                        window.alert('Geocoder failed due to: ' + status);
+                        return true;
+                    }
+                });
+            }
+
+            function getAddress(location, ipAddress, browserName) {
+                let data = {
+                    location: location,
+                    browserName: browserName,
+                    ipAddress: ipAddress
+                }
+                console.log("final data object: ", data);
+                $.ajax({
+                    type: 'POST',
+                    url: window.location.origin + '/api/v1/insert-chart-details',
+                    data: data,
+                    success: function (data) {
+                        console.log("Data Submitted Successfully!: ", data);
+                    },
+                    error: function (err) {
+                        console.log("error", err);
+                    }
+                })
+            }
+            $.get(window.location.origin + "/api/v1/get-chart-details", function (result, status) {
+                var data = result.data;
+                createChart(data, status);
+            });
+            function createChart(resArr, status) {
+
+                var ctx = document.getElementById('myChart');
+                var labels = [];
+                var data = [];
+                for (var i = 0; i < resArr.length; i++) {
+                    if (!labels.includes(resArr[i].browserName)) {
+                        labels.push(resArr[i].browserName);
+                        var count = getCount(resArr[i].browserName);
+                        data.push(count);
+                    }
+                }
+                function getCount(nameOfBrowser) {
+                    var counter = 0;
+                    for (var i = 0; i < resArr.length; i++) {
+
+                        if (resArr[i].browserName === nameOfBrowser) {
+                            counter++;
+                        }
+                    }
+                    return counter;
+                }
+                var myChart = new Chart(ctx, {
+                    type: 'bar',
+                    data: {
+                        labels: labels,
+                        datasets: [{
+                            label: '# of Users',
+                            data: data,
+                            backgroundColor: [
+                                'rgba(255, 99, 132, 0.2)',
+                                'rgba(54, 162, 235, 0.2)',
+                                'rgba(255, 206, 86, 0.2)',
+                                'rgba(75, 192, 192, 0.2)',
+                                'rgba(153, 102, 255, 0.2)',
+                                'rgba(255, 159, 64, 0.2)'
+                            ],
+                            borderColor: [
+                                'rgba(255, 99, 132, 1)',
+                                'rgba(54, 162, 235, 1)',
+                                'rgba(255, 206, 86, 1)',
+                                'rgba(75, 192, 192, 1)',
+                                'rgba(153, 102, 255, 1)',
+                                'rgba(255, 159, 64, 1)'
+                            ],
+                            borderWidth: 1
+                        }]
+                    },
+                    options: {
+                        scales: {
+                            yAxes: [{
+                                ticks: {
+                                    beginAtZero: true
+                                }
+                            }]
+                        }
+                    }
+                });
+            }
+        });
+    </script>
+</body>
+
+
+</html>
